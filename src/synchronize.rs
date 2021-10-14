@@ -1,6 +1,6 @@
 use crate::key_store::{decode, encode, Storage};
 use crate::util::*;
-use crate::DatabaseResult;
+use crate::Result;
 use crate::{InsertionFailError, InvalidCharacterError};
 use pg::NoTls;
 use postgres as pg;
@@ -20,7 +20,7 @@ impl Writer {
     /// - `GW2DB_HOST` - The host url of database.
     /// - `GW2DB_WRITER` - The username of database, has permisssion of `INSERT`.
     /// - `GW2DB_WRITER_PW` - The password of the user.
-    pub fn new() -> DatabaseResult<Writer> {
+    pub fn new() -> Result<Writer> {
         dotenv::dotenv()?;
         let dbname = dotenv::var("GW2DB_DBNAME")?;
         let host = dotenv::var("GW2DB_HOST")?;
@@ -39,22 +39,14 @@ impl Writer {
     /// Store api key into database, with help of uid.
     /// `uid` is restricted in alphabets, numbers, and `-`;
     /// `api_key` is also in same restriction.
-    pub fn store(&mut self, uid: &str, api_key: &str) -> DatabaseResult<()> {
+    pub fn store(&mut self, uid: &str, api_key: &str) -> Result<()> {
         match (
             uid.chars().all(is_valid_uid),
             api_key.chars().all(is_valid_key),
         ) {
             (true, true) => (),
-            (false, _) => {
-                return Err(Box::new(InvalidCharacterError {
-                    message: uid.to_string(),
-                }))
-            }
-            (_, false) => {
-                return Err(Box::new(InvalidCharacterError {
-                    message: api_key.to_string(),
-                }))
-            }
+            (false, _) => return Err(InvalidCharacterError::from(uid))?,
+            (_, false) => return Err(InvalidCharacterError::from(api_key))?,
         }
 
         let s: Storage = encode(uid, api_key)?;
@@ -69,7 +61,7 @@ impl Writer {
 
         match inserted {
             1 => Ok(()),
-            0 => Err(Box::new(InsertionFailError)),
+            0 => Err(InsertionFailError)?,
             _ => panic!("inserted more than 1 item"),
         }
     }
@@ -82,7 +74,7 @@ impl Reader {
     /// - `GW2DB_HOST` - The host url of database.
     /// - `GW2DB_READER` - The username of database, has permission of `SELECT`.
     /// - `GW2DB_READER_PW` - The password of the user.
-    pub fn new() -> DatabaseResult<Reader> {
+    pub fn new() -> Result<Reader> {
         dotenv::dotenv()?;
         let dbname = dotenv::var("GW2DB_DBNAME")?;
         let host = dotenv::var("GW2DB_HOST")?;
@@ -99,11 +91,9 @@ impl Reader {
 
     /// Retrive api key from database, with help of uid.
     /// `uid` is restricted in alphabets, numbers, and `-`.
-    pub fn api(&mut self, uid: &str) -> DatabaseResult<String> {
+    pub fn api(&mut self, uid: &str) -> Result<String> {
         if let false = uid.chars().all(is_valid_uid) {
-            return Err(Box::new(InvalidCharacterError {
-                message: uid.to_string(),
-            }));
+            return Err(InvalidCharacterError::from(uid))?;
         }
 
         let mut client = self.conf.connect(NoTls)?;
@@ -120,6 +110,6 @@ impl Reader {
 
         client.close()?;
 
-        decode(&s)
+        decode(&s, uid)
     }
 }
